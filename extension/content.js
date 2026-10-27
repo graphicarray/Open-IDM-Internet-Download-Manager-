@@ -117,10 +117,11 @@
       const visible = !scrolling && !record.dismissed && rect.width > 100 && rect.height > 60 && rect.top >= 0 && rect.top < innerHeight-30 && rect.right > 0 && rect.left < innerWidth;
       record.host.style.display = visible ? 'block' : 'none';
       if(!visible)continue;
-      const width = record.host.offsetWidth || 180, height = record.host.offsetHeight || 27;
-      const above = rect.top >= height + 6;
-      record.host.style.top = `${Math.max(5, Math.min(innerHeight - height - 5,above ? rect.top-height-4 : rect.top+4))}px`;
-      record.host.style.left = `${Math.max(5, Math.min(innerWidth - width - 5, rect.right - width - 8))}px`;
+      // Keep the button inside the video frame, top-right corner.
+      const width = record.host.offsetWidth || 180, height = record.host.offsetHeight || 30;
+      const frameTop = rect.top, frameRight = Math.min(rect.right, innerWidth);
+      record.host.style.top = `${Math.max(5, Math.min(innerHeight - height - 5, frameTop + 8))}px`;
+      record.host.style.left = `${Math.max(5, Math.min(innerWidth - width - 5, frameRight - width - 8))}px`;
       const chooser=record.shadow.querySelector('.chooser');
       if(chooser){
         const chooserWidth=Math.min(410,innerWidth-10), chooserHeight=Math.min(chooser.scrollHeight||330,Math.min(330,innerHeight*.55));

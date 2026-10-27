@@ -19,7 +19,10 @@ test('HLS parser resolves real variants and segment/init URLs', () => {
 test('HLS rejects unsupported formats and selects the associated audio group', () => {
   assert.throws(() => parseHls('#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key"\n#EXTINF:3,\na.ts\n#EXT-X-ENDLIST', 'https://example.com/a'), /Encrypted/);
   assert.throws(() => parseHls('#EXTM3U\n#EXTINF:3,\na.ts', 'https://example.com/a'), /Live/);
-  assert.throws(() => parseHls('#EXTM3U\n#EXT-X-BYTERANGE:100@0\na.ts\n#EXT-X-ENDLIST', 'https://example.com/a'), /byte-range/);
+  const ranged = parseHls('#EXTM3U\n#EXT-X-MAP:URI="v.mp4",BYTERANGE="50@0"\n#EXTINF:2,\n#EXT-X-BYTERANGE:100@50\nv.mp4\n#EXTINF:2,\n#EXT-X-BYTERANGE:80\nv.mp4\n#EXT-X-ENDLIST', 'https://example.com/a');
+  assert.deepEqual(ranged.urls, ['https://example.com/v.mp4', 'https://example.com/v.mp4', 'https://example.com/v.mp4']);
+  assert.deepEqual(ranged.ranges, [{ start: 0, end: 49 }, { start: 50, end: 149 }, { start: 150, end: 229 }]);
+  assert.throws(() => parseHls('#EXTM3U\n#EXT-X-BYTERANGE:100\na.ts\n#EXT-X-ENDLIST', 'https://example.com/a'), /starting offset/);
   const paired = parseHls('#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="sound",URI="audio.m3u8"\n#EXT-X-STREAM-INF:BANDWIDTH=3,AUDIO="sound"\nv.m3u8', 'https://example.com/a');
   assert.equal(paired.variants[0].audioUrl,'https://example.com/audio.m3u8');
   assert.deepEqual(scopedHeaders({ cookie: 'private', authorization: 'Bearer private', referer: 'https://page.test' }, 'https://a.test/a', 'https://b.test/b'), { referer: 'https://page.test' });

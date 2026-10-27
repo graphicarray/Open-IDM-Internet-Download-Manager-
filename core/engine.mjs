@@ -290,7 +290,8 @@ export class DownloadEngine extends EventEmitter {
     const plan = await resolveHls(d.url, headers, signal);
     if (d.audioUrl) plan.audio = await resolveHls(d.audioUrl, scopedHeaders(headers, d.url, d.audioUrl), signal);
     const videoCount = plan.urls.length;
-    if (plan.audio) { plan.urls.push(...plan.audio.urls); plan.identity += ':' + plan.audio.identity; plan.extension = '.mp4'; }
+    plan.ranges = plan.ranges || plan.urls.map(() => null);
+    if (plan.audio) { plan.urls.push(...plan.audio.urls); plan.ranges.push(...(plan.audio.ranges || plan.audio.urls.map(() => null))); plan.identity += ':' + plan.audio.identity; plan.extension = '.mp4'; }
     const dir = path.join(this.partsDirectory, d.id);
     if (d.playlistIdentity !== plan.identity) {
       await fs.rm(dir, { recursive: true, force: true }); d.segments = [];
@@ -304,7 +305,7 @@ export class DownloadEngine extends EventEmitter {
       let size = 0, done = false;
       try { size = (await fs.stat(path.join(dir, `${i}.part`))).size; done = true; } catch (e) { if (e.code !== 'ENOENT') throw e; }
       d.downloaded += size;
-      return { url, start: 0, end: null, downloaded: size, done };
+      return { url, range: plan.ranges[i] || null, start: 0, end: null, downloaded: size, done };
     }));
     d.connections = Math.min(this.settings.connections, d.segments.length);
     d.status = 'downloading'; await this.persist(); this.changed();
@@ -321,8 +322,10 @@ export class DownloadEngine extends EventEmitter {
           d.downloaded -= segment.downloaded; segment.downloaded = 0;
           const out = await fs.open(temp, 'w'); let response;
           try {
-            response = await request(segment.url, { headers: scopedHeaders(headers, plan.source, segment.url), signal: groupSignal });
-            if (response.statusCode !== 200) throw new Error(`HLS segment returned HTTP ${response.statusCode}.`);
+            const segmentHeaders = scopedHeaders(headers, plan.source, segment.url);
+            if (segment.range) segmentHeaders.range = `bytes=${segment.range.start}-${segment.range.end}`;
+            response = await request(segment.url, { headers: segmentHeaders, signal: groupSignal });
+            if (response.statusCode !== (segment.range ? 206 : 200)) throw new Error(segment.range && response.statusCode === 200 ? 'The server ignored the HLS byte range.' : `HLS segment returned HTTP ${response.statusCode}.`);
             const expected = Number(response.headers['content-length']);
             for await (const chunk of response) { groupSignal.throwIfAborted(); await this.throttle(chunk.length, groupSignal); await out.writeFile(chunk); segment.downloaded += chunk.length; d.downloaded += chunk.length; }
             if (Number.isFinite(expected) && expected !== segment.downloaded) throw new Error('Incomplete HLS segment.');
