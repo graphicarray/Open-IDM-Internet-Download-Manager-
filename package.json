@@ -104,8 +104,7 @@
         }
       ],
       "icon": "build/icon.ico",
-      "signExecutable": false,
-      "publisherName": "Graphicarray"
+      "signExecutable": false
     },
     "portable": {
       "artifactName": "Open-IDM-${version}-Portable.exe"
