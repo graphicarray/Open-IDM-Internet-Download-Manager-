@@ -93,7 +93,6 @@
     "asarUnpack": [
       "node_modules/ffmpeg-static/ffmpeg.exe"
     ],
-    "electronDist": "node_modules/electron/dist",
     "win": {
       "target": [
         {
