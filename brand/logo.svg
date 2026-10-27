@@ -1,0 +1,36 @@
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100">
+  <defs>
+    <style>
+      .st0 { fill: #001e36; }
+      .st1 { fill: url(#radial-gradient); }
+      .st2 { fill: url(#radial-gradient1); }
+      .st3 { fill: url(#radial-gradient2); }
+    </style>
+    <radialGradient id="radial-gradient" cx="49.12" cy="57.59" fx="49.12" fy="57.59" r="20.9" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00cdff"/>
+      <stop offset=".2" stop-color="#00c6ff"/>
+      <stop offset=".48" stop-color="#00b5ff"/>
+      <stop offset=".79" stop-color="#09f"/>
+      <stop offset="1" stop-color="#0083ff"/>
+    </radialGradient>
+    <radialGradient id="radial-gradient1" cx="28.88" cy="26.12" fx="28.88" fy="26.12" r="41.83" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00cdff"/>
+      <stop offset=".23" stop-color="#00c9ff"/>
+      <stop offset=".47" stop-color="#00bdff"/>
+      <stop offset=".7" stop-color="#00a9ff"/>
+      <stop offset=".93" stop-color="#008dff"/>
+      <stop offset="1" stop-color="#0083ff"/>
+    </radialGradient>
+    <radialGradient id="radial-gradient2" cx="59" cy="46.76" fx="59" fy="46.76" r="33.78" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00cdff"/>
+      <stop offset=".2" stop-color="#00c6ff"/>
+      <stop offset=".48" stop-color="#00b5ff"/>
+      <stop offset=".79" stop-color="#09f"/>
+      <stop offset="1" stop-color="#0083ff"/>
+    </radialGradient>
+  </defs>
+  <rect class="st0" x="0" y="0" width="100" height="100"/>
+  <polygon class="st1" points="49.78 61.93 39.27 63.71 39.27 63.71 33.89 73.04 49.78 70.35 66.11 73.15 60.72 63.81 49.78 61.93"/>
+  <path class="st2" d="M39.27,46.88l5.38-9.33.45-.79,2.54-4.4c1.03-1.78,3.6-1.78,4.63,0l2.54,4.4.5.87,10.78,1.85h0l-5.39-9.34-1.04-1.8-.11-.2c-4.27-7.39-14.94-7.39-19.2,0l-.11.2-.98,1.7-5.38,9.33-5.38,9.32-4.21,7.29c-2.78,4.82-1.54,10.27,1.85,13.63l2.36-4.09,5.38-9.32,5.38-9.33Z"/>
+  <path class="st3" d="M75.7,56.1l-4.2-7.27-10.78-1.85-10.73-1.84-.02.04-5.31,9.2,5.13-.87,5.55.95,10.78,1.85h0s5.39,9.34,5.39,9.34l2.35,4.07c3.39-3.37,4.63-8.81,1.84-13.63Z"/>
+</svg>
