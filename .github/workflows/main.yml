@@ -43,9 +43,17 @@ jobs:
       - name: Compile native host launcher
         shell: pwsh
         run: |
+          $src = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter NativeHostLauncher.cs -File |
+            Where-Object { $_.FullName -notmatch 'node_modules' } | Select-Object -First 1
+          if (-not $src) {
+            Get-ChildItem -Path $env:GITHUB_WORKSPACE -Depth 1 | Select-Object -ExpandProperty FullName
+            throw 'NativeHostLauncher.cs not found. Check the repo has the integration folder at its root.'
+          }
+          $out = Join-Path $src.DirectoryName 'native-host.exe'
           $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-          & $csc /nologo /target:exe /out:integration/native-host.exe integration/NativeHostLauncher.cs
+          & $csc /nologo /target:exe "/out:$out" $src.FullName
           if ($LASTEXITCODE -ne 0) { throw 'csc failed' }
+          Write-Output "Built $out"
 
       - name: Build NSIS installer
         run: npm run dist
