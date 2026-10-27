@@ -211,6 +211,16 @@ export class DownloadEngine extends EventEmitter {
     const mime = String(info.headers['content-type'] || '');
     if (/mpegurl/i.test(mime)) { await this.runHls(d, headers, signal); return; }
     if (/dash\+xml/i.test(mime)) throw new Error('DASH streams need a muxing engine, which is not included yet.');
+    // Some CDNs (Facebook, for example) advertise byte ranges but answer 200 with the whole file. Verify with a real
+    // one-byte request; if ranges are not honoured, use one plain connection instead of failing.
+    if (info.ranges && info.total !== null) {
+      let honoured = false;
+      try {
+        const check = await request(d.url, { headers: { ...headers, Range: 'bytes=0-0' }, signal });
+        honoured = check.statusCode === 206; check.destroy();
+      } catch (error) { if (signal.aborted) throw error; }
+      if (!honoured) { info.ranges = false; info.validator = null; }
+    }
     if (!d.explicitFilename) { d.filename = suggestedName(info.url, info.headers['content-disposition']); if (!d.explicitCategory) d.category = categoryFor(d.filename); }
     const dir = path.join(this.partsDirectory, d.id);
     await fs.mkdir(dir, { recursive: true });

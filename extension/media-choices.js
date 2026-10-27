@@ -15,9 +15,11 @@
     const audioUrls=new Set(list.map(i=>i.audioUrl).filter(Boolean));
     list=list.filter(i=>!audioUrls.has(i.url) && (!richAssets.has(assetKey(i.url))||i.masterUrl));
     const seen=new Set(), choices=[];
-    for(const item of list.sort((a,b)=>(b.bitrate||0)-(a.bitrate||0))) {
+    const heightOf=i=>parseInt(i.quality,10)||0;
+    for(const item of list.sort((a,b)=>heightOf(b)-heightOf(a)||(b.bitrate||0)-(a.bitrate||0))) {
+      if(item.trackKind==='audio'&&!audioUrls.has(item.url)){const key=item.url+'|mp3';if(!seen.has(key)){seen.add(key);choices.push({...item,format:'MP3',outputFormat:'mp3',quality:'',audioState:'Audio only',asset:assetKey(item.url)});}continue;}
       const hls=item.format==='HLS';
-      const audioState=item.audioUrl||/mp4a|ac-3|ec-3|opus/i.test(item.codecs||'')?'Video + audio':item.codecs?'Video only (silent)':'Audio not verified';
+      const audioState=item.audioUrl||item.knownAudio==='yes'||item.knownAudio!=='no'&&/mp4a|ac-3|ec-3|opus/i.test(item.codecs||'')?'Video + audio':item.knownAudio==='no'?'Video only (silent)':item.codecs?'Video only (silent)':'Audio not verified';
       const video={...item,format:hls?'MP4':item.format,outputFormat:hls?'mp4':item.outputFormat,audioState,asset:assetKey(item.url)};
       const variants=[video];
       if(item.audioUrl)variants.push({...item,url:item.audioUrl,audioUrl:undefined,format:'MP3',outputFormat:'mp3',quality:'',bitrate:0,audioState:'Audio only',asset:assetKey(item.url)});

@@ -52,7 +52,10 @@ async function discoverHls(tabId,url) {
     const variants=globalThis.parseHlsMaster(new TextDecoder().decode(bytes),response.url||url);
     let title='';try{title=(await api.tabs.get(tabId)).title||'';}catch{}
     if(hlsSeen.get(tabId)===seen)await remember(tabId,variants.map(item=>({...item,title})));
-  } catch {} finally {clearTimeout(timer);hlsActive--;}
+  } catch {
+    // Playlist could not be read here (cookies, referer, CORS). Still offer it, labelled, so it is not lost.
+    if(hlsSeen.get(tabId)===seen){let title='';try{title=(await api.tabs.get(tabId)).title||'';}catch{}await remember(tabId,[{url,format:'HLS',quality:globalThis.hlsQualityFromUrl?.(url)||'',title}]).catch(()=>{});}
+  } finally {clearTimeout(timer);hlsActive--;}
 }
 function nativeSend(payload) {
   return new Promise((resolve, reject) => {
@@ -82,8 +85,73 @@ async function enqueue(item, tabId) {
   const url = httpUrl(sabr?.serverAbrStreamingUrl||item.url);
   if (!url) throw new Error('Only direct HTTP and HTTPS links are supported.');
   if (unsupported(url, item.mime) || item.unsupported) throw new Error(item.reason || 'DASH streams are unsupported.');
-  const requestHeaders=requestContext.get(tabId)?.get(url);
+  let requestHeaders=requestContext.get(tabId)?.get(url);
+  if(!requestHeaders&&requestContext.get(tabId))for(const [seenUrl,seenHeaders] of requestContext.get(tabId))if(cleanMediaUrl(seenUrl)===url){requestHeaders=seenHeaders;break;}
   return nativeSend({action: 'download', url, youtubeFormat:item.youtubeFormat, sabr, startNow:item.startNow===true, audioUrl:httpUrl(item.audioUrl)||undefined, outputFormat:item.outputFormat, filename: item.filename, referer: httpUrl(requestHeaders?.referer || item.referer) || undefined,requestHeaders});
+}
+
+// Facebook/Instagram CDN links often carry a byte window (bytestart/byteend). The full track URL is the same link without it.
+function cleanMediaUrl(value) {
+  try {
+    const u = new URL(value);
+    if (/(^|\.)(fbcdn\.net|cdninstagram\.com)$/.test(u.hostname) && (u.searchParams.has('bytestart') || u.searchParams.has('byteend'))) {
+      u.searchParams.delete('bytestart'); u.searchParams.delete('byteend'); return u.href;
+    }
+  } catch {}
+  return value;
+}
+// Minimal MP4 reader: finds video size and whether the file has video and/or audio tracks.
+function parseMp4Info(buf) {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const four = at => String.fromCharCode(buf[at], buf[at+1], buf[at+2], buf[at+3]);
+  const out = {video:false, audio:false, width:0, height:0, found:false};
+  const boxes = (start, end, visit) => {
+    let at = start;
+    while (at + 8 <= end) {
+      let size = dv.getUint32(at), header = 8;
+      if (size === 1) { if (at + 16 > end) return; size = Number(dv.getBigUint64(at + 8)); header = 16; }
+      else if (size === 0) size = end - at;
+      if (size < header) return;
+      visit(four(at + 4), at, Math.min(at + size, end), header);
+      at += size;
+    }
+  };
+  boxes(0, buf.length, (type, at, end, header) => {
+    if (type !== 'moov') return;
+    out.found = true;
+    boxes(at + header, end, (t1, a1, e1, h1) => {
+      if (t1 !== 'trak') return;
+      let handler = '', width = 0, height = 0;
+      boxes(a1 + h1, e1, (t2, a2, e2, h2) => {
+        if (t2 === 'tkhd' && e2 - a2 >= 16) { width = dv.getUint32(e2 - 8) >>> 16; height = dv.getUint32(e2 - 4) >>> 16; }
+        if (t2 === 'mdia') boxes(a2 + h2, e2, (t3, a3, e3) => { if (t3 === 'hdlr' && e3 - a3 >= 20) handler = four(a3 + 16); });
+      });
+      if (handler === 'vide') { out.video = true; if (height > out.height) { out.height = height; out.width = width; } }
+      if (handler === 'soun') out.audio = true;
+    });
+  });
+  return out;
+}
+async function readLimited(response, limit) {
+  const reader = response.body.getReader(); const chunks = []; let size = 0;
+  while (size < limit) { const {done, value} = await reader.read(); if (done) break; chunks.push(value); size += value.length; }
+  await reader.cancel().catch(() => {});
+  const bytes = new Uint8Array(Math.min(size, limit)); let offset = 0;
+  for (const chunk of chunks) { const part = chunk.subarray(0, Math.max(0, bytes.length - offset)); bytes.set(part, offset); offset += part.length; if (offset >= bytes.length) break; }
+  return bytes;
+}
+async function probeMp4(url) {
+  const attempt = async range => {
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(url, {headers: range ? {Range: range} : {}, credentials: 'omit', signal: controller.signal});
+      if (!response.ok) return null;
+      return parseMp4Info(await readLimited(response, 786432));
+    } catch { return null; } finally { clearTimeout(timer); }
+  };
+  let info = await attempt('bytes=0-786431');
+  if (!info?.found) info = await attempt('bytes=-786432') || info;
+  return info?.found ? {video: info.video, audio: info.audio, width: info.width, height: info.height} : null;
 }
 function updateCache(change) {
   const next = serial.then(async () => {
@@ -103,7 +171,7 @@ async function remember(tabId, items) {
   await updateCache(map => {
     const prior = map[tabId] || [];
     for (const item of items.slice(0, 100)) {
-      const url = httpUrl(item.url);
+      const url = httpUrl(cleanMediaUrl(item.url));
       if (!url || isFragment(url)) continue;
       const value={url, mime: String(item.mime || '').slice(0, 100), title: String(item.title || '').slice(0, 180), quality:String(item.quality||'').slice(0,40),bitrate:Number(item.bitrate)||0,format:String(item.format||'').slice(0,20),separateAudio:!!item.separateAudio,reason:String(item.reason||'').slice(0,180),unsupported: unsupported(url, item.mime)||!!item.unsupported};
       value.audioUrl=httpUrl(item.audioUrl)||undefined;
@@ -182,6 +250,12 @@ api.runtime.onMessage.addListener((message, sender, respond) => {
       const data = await api.storage.session.get(CACHE_KEY);
       return {ok: true, items: data[CACHE_KEY]?.[message.tabId] || []};
     }
+    if (message.action === 'probeMedia' && sender.tab) {
+      const urls = (Array.isArray(message.urls) ? message.urls : []).map(httpUrl).filter(Boolean).slice(0, 12);
+      const info = {};
+      await Promise.all(urls.map(async url => { const result = await probeMp4(url); if (result) info[url] = result; }));
+      return {ok: true, info};
+    }
     if (message.action === 'listForFrame' && sender.tab) {
       const page=new URL(sender.tab.url||'https://invalid.local');
       if(['www.youtube.com','youtube.com','m.youtube.com'].includes(page.hostname)) {
@@ -190,8 +264,19 @@ api.runtime.onMessage.addListener((message, sender, respond) => {
         await api.tabs.sendMessage(sender.tab.id,{action:'refreshPlayer'}).catch(()=>{});
         const player=youtubePlayers.get(sender.tab.id);
         const active=player?.videoId===id?{...player,sabrUrl:youtubeSabrObserved.get(sender.tab.id)?.url||player.sabrUrl}:null;
-        const items=active?globalThis.youtubeMedia.choices(active,youtubeObserved.get(sender.tab.id)||[]):[];
-        return {ok:true,items,notice:!items.length&&player?.videoId===id&&player.sabr?'This video uses YouTube SABR streaming, which this version cannot download yet. No download has been started.':undefined};
+        let items=active?globalThis.youtubeMedia.choices(active,youtubeObserved.get(sender.tab.id)||[]):[];
+        // SABR formats cannot be downloaded until the player's streaming session was captured.
+        // Without captured formats, or without that session, ask the desktop app (bundled yt-dlp) instead.
+        let desktopError='';
+        if(!items.length||(items.some(i=>i.sabrSelection)&&!youtubeSabrObserved.has(sender.tab.id))) {
+          try {
+            const listed=await nativeSend({action:'formats',url:'https://www.youtube.com/watch?v='+id});
+            const fromDesktop=(listed.items||[]).filter(i=>i&&i.provider==='youtube'&&httpUrl(i.url));
+            if(fromDesktop.length)return {ok:true,items:fromDesktop};
+          } catch(error) { desktopError=error.message; }
+        }
+        const notice=!items.length?(desktopError||(player?.videoId===id&&player.sabr?'This video uses YouTube SABR streaming, which this version cannot download yet. No download has been started.':undefined)):undefined;
+        return {ok:true,items,notice};
       }
       await serial;
       const data = await api.storage.session.get(CACHE_KEY);

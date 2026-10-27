@@ -37,9 +37,9 @@
       if (seen.has(video)) continue;
       seen.add(video);
       const host = document.createElement('div');
-      host.style.cssText = 'position:fixed;z-index:2147483647;display:none;pointer-events:auto';
+      host.style.cssText = 'position:fixed;z-index:2147483647;display:none;pointer-events:none';
       const shadow = host.attachShadow({mode:'closed'});
-      shadow.innerHTML = '<style>:host{font:12px Inter,"Segoe UI",system-ui,Verdana,sans-serif;color:#fff}.bar{display:flex;justify-content:flex-end;align-items:stretch;gap:4px}.download,.dismiss{font:700 12px Inter,"Segoe UI",system-ui,Verdana,sans-serif;cursor:pointer;height:30px;border-radius:999px}.download{background:linear-gradient(135deg,#00CDFF,#0083FF);color:#001E36;border:0;padding:4px 14px;box-shadow:0 0 18px #00CDFFAA}.dismiss{background:#062847;color:#8FA7BF;border:1px solid #0F4A7A;width:30px;padding:0;font-size:16px;line-height:20px}.download:hover{filter:brightness(1.08)}.dismiss:hover{color:#00CDFF;border-color:#00CDFF}.download:disabled{opacity:.65;cursor:default}.chooser{position:fixed;background:#062847;color:#fff;padding:8px;border:1px solid #0F4A7A;border-radius:20px;width:min(410px,calc(100vw - 10px));box-shadow:0 0 0 5px #00A9FF33;max-height:min(330px,55vh);overflow:auto}.chooser p{margin:4px 8px 8px;line-height:1.4;color:#8FA7BF}.row{display:block;width:100%;text-align:left;background:transparent;border:0;border-radius:999px;box-shadow:none;padding:6px 12px;font:600 12px Inter,"Segoe UI",system-ui,Verdana,sans-serif;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}.row:hover:not(:disabled),.row:focus-visible{background:#001E36;outline:1px solid #00CDFF;outline-offset:-1px}.row:disabled{color:#5F7C99;cursor:default}</style><div class="bar"><button class="download" type="button">↓ Download this video ▾</button><button class="dismiss" type="button" title="Hide this download panel" aria-label="Hide this download panel">×</button></div>';
+      shadow.innerHTML = '<style>:host{font:12px Inter,"Segoe UI",system-ui,Verdana,sans-serif;color:#fff}.bar{display:flex;justify-content:flex-end;align-items:stretch;gap:4px}.download,.dismiss,.chooser{pointer-events:auto}.download,.dismiss{font:700 12px Inter,"Segoe UI",system-ui,Verdana,sans-serif;cursor:pointer;height:30px;border-radius:999px}.download{background:linear-gradient(135deg,#00CDFF,#0083FF);color:#001E36;border:0;padding:4px 14px;box-shadow:0 0 18px #00CDFFAA}.dismiss{background:#062847;color:#8FA7BF;border:1px solid #0F4A7A;width:30px;padding:0;font-size:16px;line-height:20px}.download:hover{filter:brightness(1.08)}.dismiss:hover{color:#00CDFF;border-color:#00CDFF}.download:disabled{opacity:.65;cursor:default}.chooser{position:fixed;background:#062847;color:#fff;padding:8px;border:1px solid #0F4A7A;border-radius:20px;width:min(410px,calc(100vw - 10px));box-shadow:0 0 0 5px #00A9FF33;max-height:min(330px,55vh);overflow:auto}.chooser p{margin:4px 8px 8px;line-height:1.4;color:#8FA7BF}.row{display:block;width:100%;text-align:left;background:transparent;border:0;border-radius:999px;box-shadow:none;padding:6px 12px;font:600 12px Inter,"Segoe UI",system-ui,Verdana,sans-serif;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}.row:hover:not(:disabled),.row:focus-visible{background:#001E36;outline:1px solid #00CDFF;outline-offset:-1px}.row:disabled{color:#5F7C99;cursor:default}</style><div class="bar"><button class="download" type="button">↓ Download this video ▾</button><button class="dismiss" type="button" title="Hide this download panel" aria-label="Hide this download panel">×</button></div>';
       const button = shadow.querySelector('.download');
       const dismiss = shadow.querySelector('.dismiss');
       const record = {video, host, shadow, dismissed:false}; records.add(record);
@@ -76,21 +76,43 @@
             const youtube=/(^|\.)youtube\.com$/.test(location.hostname);
             if(!youtube&&url&&!candidates.some(item=>item.url===url)) candidates.unshift({url,title:document.title});
             if (!candidates.length) { hint.textContent=result.notice || (youtube?'Play the video briefly, then reopen this menu. No complete video with audio has been captured yet.':'No direct media links detected. Play the video and try again.'); return; }
-            const choices=globalThis.mediaChoices(candidates,{url,poster:video.poster});
-            if(!choices.length){hint.textContent='No complete formats detected for this video yet. Play it briefly, then try again.';return;}
-            choices.forEach((item,index)=>{
-              const row=document.createElement('button');row.className='row';row.type='button';row.disabled=item.unsupported;
-              row.title=item.reason||'';
-              const format=item.format||(/\.m3u8(?:[?#]|$)/i.test(item.url)?'HLS':/\.(mp4|webm|mp3|m4a|mov)(?:[?#]|$)/i.exec(item.url)?.[1]?.toUpperCase()||'Media');
-              const title = item.asset ? `Video ${item.asset}` : item.title || document.title || 'Video';
-              row.textContent = `${index+1}. ${item.quality || format} · ${format} · ${item.audioState}${item.bitrate ? ' · '+Math.round(item.bitrate/1000)+' kbps' : ''} — ${title}`;
-              row.onclick=async event=>{
-                event.preventDefault();event.stopPropagation();row.disabled=true;
-                hint.textContent='Opening download options…';
-                try{const response=await send({action:'download',item:{...item,startNow:false}});hint.textContent=response.ok?'Download opened in Open IDM. Choose Start Download or Download Later there. An active download is opened instead of duplicated.':friendlyError(response.error);}catch(error){hint.textContent=friendlyError(error.message);}
-                row.disabled=!!item.unsupported;
-              };chooser.append(row);
-            }); position();
+            const socialCdn=value=>{try{return /(^|\.)(fbcdn\.net|cdninstagram\.com)$/.test(new URL(value).hostname);}catch{return false;}};
+            // Facebook and Instagram serve video and audio as separate tracks: join the silent video with the audio track.
+            const pairTracks=list=>{
+              const audio=list.find(i=>i.trackKind==='audio'&&socialCdn(i.url));
+              return audio?list.map(i=>i.trackKind==='video'&&i.knownAudio==='no'&&socialCdn(i.url)&&!i.audioUrl?{...i,audioUrl:audio.url}:i):list;
+            };
+            const render=list=>{
+              chooser.querySelectorAll('.row').forEach(node=>node.remove());
+              const choices=globalThis.mediaChoices(pairTracks(list),{url,poster:video.poster});
+              if(!choices.length){hint.textContent='No complete formats detected for this video yet. Play it briefly, then try again.';return;}
+              hint.textContent='Choose a format to download';
+              choices.forEach((item,index)=>{
+                const row=document.createElement('button');row.className='row';row.type='button';row.disabled=item.unsupported;
+                row.title=item.reason||'';
+                const format=item.format||(/\.m3u8(?:[?#]|$)/i.test(item.url)?'HLS':/\.(mp4|webm|mp3|m4a|mov)(?:[?#]|$)/i.exec(item.url)?.[1]?.toUpperCase()||'Media');
+                const title = item.asset ? `Video ${item.asset}` : item.title || document.title || 'Video';
+                row.textContent = `${index+1}. ${item.quality || format} · ${format} · ${item.audioState}${item.bitrate ? ' · '+Math.round(item.bitrate/1000)+' kbps' : ''} — ${title}`;
+                row.onclick=async event=>{
+                  event.preventDefault();event.stopPropagation();row.disabled=true;
+                  hint.textContent='Opening download options…';
+                  try{const response=await send({action:'download',item:{...item,startNow:false}});hint.textContent=response.ok?'Download opened in Open IDM. Choose Start Download or Download Later there. An active download is opened instead of duplicated.':friendlyError(response.error);}catch(error){hint.textContent=friendlyError(error.message);}
+                  row.disabled=!!item.unsupported;
+                };chooser.append(row);
+              }); position();
+            };
+            render(candidates);
+            // Read the real video size (and audio/video track type) of each direct file, so every row shows its quality.
+            const unknown=candidates.filter(i=>!i.unsupported&&!i.provider&&!i.quality&&!/\.m3u8(?:[?#]|$)/i.test(i.url)).slice(0,12);
+            if(unknown.length)send({action:'probeMedia',urls:unknown.map(i=>i.url)}).then(result=>{
+              if(!result?.ok||!chooser.isConnected)return;
+              for(const item of unknown){
+                const info=result.info?.[item.url];if(!info)continue;
+                if(info.video){item.trackKind='video';item.knownAudio=info.audio?'yes':'no';if(info.height)item.quality=info.height+'p';}
+                else if(info.audio)item.trackKind='audio';
+              }
+              render(candidates);
+            }).catch(()=>{});
           } catch(error) {hint.textContent=error.message;}
           return;
         }
@@ -132,7 +154,11 @@
       }
     }
   }
-  mutationObserver=new MutationObserver(() => { if (!stopped && !pending) { pending = true; scanFrame=requestAnimationFrame(scan); } });
+  mutationObserver=new MutationObserver(changes => {
+    // Ignore changes caused only by our own buttons, otherwise re-attaching them can loop and make them blink.
+    const ours=new Set([...records].map(record=>record.host));
+    if(Array.isArray(changes)&&changes.length&&changes.every(change=>[...change.addedNodes,...change.removedNodes].every(node=>ours.has(node))))return;
+    if (!stopped && !pending) { pending = true; scanFrame=requestAnimationFrame(scan); } });
   mutationObserver.observe(document.documentElement, {subtree:true, childList:true});
   document.addEventListener('pointerdown',event=>{
     const path=event.composedPath();
@@ -143,6 +169,9 @@
   function onScroll(event) {
     // Scrolling the quality list itself must remain usable.
     if(event?.composedPath?.().some(node=>[...records].some(record=>node===record.host)))return;
+    // Scrolling inside unrelated page parts (carousels, previews) must not hide the button.
+    const target=event?.target;
+    if(target&&target.nodeType===1&&target!==document.documentElement&&target!==document.body&&![...records].some(record=>target.contains(record.video)))return;
     scrolling=true;closeChoosers();clearTimeout(scrollTimer);
     scrollTimer=setTimeout(()=>{scrolling=false;position();},140);
   }
