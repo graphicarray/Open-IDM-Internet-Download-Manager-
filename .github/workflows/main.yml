@@ -1,0 +1,89 @@
+name: Build Open IDM (Windows EXE)
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to attach files to a GitHub Release
+
+env:
+  YTDLP_VERSION: '2026.08.19'
+  YTDLP_SHA256: '66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Download yt-dlp (pinned, hash checked)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/yt-dlp/yt-dlp/releases/download/$env:YTDLP_VERSION/yt-dlp.exe"
+          Invoke-WebRequest -Uri $url -OutFile vendor/yt-dlp.exe
+          $hash = (Get-FileHash vendor/yt-dlp.exe -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:YTDLP_SHA256) { throw "yt-dlp hash mismatch: $hash" }
+
+      - name: Compile native host launcher
+        shell: pwsh
+        run: |
+          $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /target:exe /out:integration/native-host.exe integration/NativeHostLauncher.cs
+          if ($LASTEXITCODE -ne 0) { throw 'csc failed' }
+
+      - name: Build NSIS installer
+        run: npm run dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Build portable EXE
+        run: npm run dist:portable
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Package browser extension
+        shell: pwsh
+        run: ./integration/package-extension.ps1
+
+      - name: Collect release files and checksums
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist-out | Out-Null
+          Copy-Item release/Open-IDM-Setup.exe dist-out/
+          Copy-Item release/Open-IDM-*-Portable.exe dist-out/ -ErrorAction SilentlyContinue
+          Copy-Item release-extension/*.zip dist-out/
+          Copy-Item THIRD-PARTY.md dist-out/
+          Get-ChildItem dist-out -File | Where-Object { $_.Extension -in '.exe','.zip' } |
+            ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } |
+            Set-Content dist-out/SHA256SUMS.txt
+          Get-Content dist-out/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Open-IDM-Windows
+          path: dist-out/*
+          if-no-files-found: error
+
+      - name: Publish GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-out/*
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
